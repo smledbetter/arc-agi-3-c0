@@ -94,15 +94,29 @@ class StateGraph:
         if src_hash in self.untested:
             self.untested[src_hash].discard(int(action_id))
 
+    # Frontier candidate = (target_hash, depth, path) where path is the
+    # action sequence from start to target_hash.
+    FrontierCandidate = tuple[str, int, list[tuple[int, Optional[int], Optional[int]]]]
+    # Picker callable: given list of candidates (sorted by depth ascending),
+    # return the chosen one. Default picker (None) = first (= shallowest BFS).
+    FrontierPicker = Callable[[list["StateGraph.FrontierCandidate"]], "StateGraph.FrontierCandidate"]
+
     def select_action(
         self,
         current_hash: str,
         available_actions: list[int],
         click_sampler: ClickSampler,
+        frontier_picker: Optional["StateGraph.FrontierPicker"] = None,
+        bfs_max_depth: int = 50,
     ) -> Optional[tuple[int, Optional[dict[str, int]]]]:
         """Pick an action via Layer 2 logic, or return None to defer to Layer 1.
 
         Returns (action_id, data_dict_or_None_for_ACTION6) on hit, None on miss.
+
+        `frontier_picker` lets Layer 3 rerank candidates by predicted value
+        instead of taking the shallowest BFS target. If None, picks shallowest.
+        `bfs_max_depth` caps frontier search depth (matches Layer 3's back-label
+        horizon, also pinned at 50).
         """
         self.observe_state(current_hash, available_actions)
 
@@ -127,14 +141,18 @@ class StateGraph:
                 return action_id, {"x": int(x), "y": int(y)} if x is not None else None
             return action_id, None
 
-        # 3. BFS to nearest visited state with non-empty untested.
-        path = self._bfs_to_frontier(current_hash)
-        if path is None:
+        # 3. Find all reachable frontier states; let picker choose.
+        candidates = self.find_all_frontiers(current_hash, max_depth=bfs_max_depth)
+        if not candidates:
             return None  # graph exhausted from here → Layer 1 takes over
+        if frontier_picker is None:
+            target_hash, depth, path = candidates[0]  # shallowest
+        else:
+            target_hash, depth, path = frontier_picker(candidates)
         self._path = path
         action_id, x, y = self._path.pop(0)
         if action_id not in legal_set:
-            # First step of fresh BFS path is illegal at current state — graph is stale.
+            # First step of fresh path is illegal at current state — stale graph.
             self._path.clear()
             return None
         self._fired += 1
@@ -151,39 +169,49 @@ class StateGraph:
             return action_id, {"x": int(x), "y": int(y)}
         return action_id, None
 
-    def _bfs_to_frontier(self, start: str) -> Optional[list[tuple[int, Optional[int], Optional[int]]]]:
-        """Return a list of (action_id, x, y) steps from start to the nearest
-        visited state with non-empty untested. None if no such state reachable."""
+    def find_all_frontiers(
+        self, start: str, max_depth: int = 50,
+    ) -> list[tuple[str, int, list[tuple[int, Optional[int], Optional[int]]]]]:
+        """BFS up to `max_depth`. Return all reachable visited states with
+        non-empty untested, sorted by depth ascending then by hash for determinism.
+        Each entry is (target_hash, depth, path_to_target).
+        """
         if start not in self.edges and start not in self.visited:
-            return None
-        # BFS over edges. Track parent pointers to reconstruct path.
+            return []
         parents: dict[str, tuple[str, Edge]] = {}
+        depth: dict[str, int] = {start: 0}
         seen = {start}
         queue = collections.deque([start])
-        target: Optional[str] = None
+        targets: list[tuple[str, int]] = []
         while queue:
             h = queue.popleft()
-            # Is this a frontier state? (visited and has untested actions)
+            d = depth[h]
+            if d > max_depth:
+                continue
             if h != start and h in self.visited and self.untested.get(h):
-                target = h
-                break
+                targets.append((h, d))
+            if d == max_depth:
+                continue
             for edge in self.edges.get(h, []):
                 if edge.dst_hash in seen:
                     continue
                 seen.add(edge.dst_hash)
                 parents[edge.dst_hash] = (h, edge)
+                depth[edge.dst_hash] = d + 1
                 queue.append(edge.dst_hash)
-        if target is None:
-            return None
-        # Reconstruct path: walk parents from target back to start.
-        steps: list[tuple[int, Optional[int], Optional[int]]] = []
-        cur = target
-        while cur != start:
-            parent_h, edge = parents[cur]
-            steps.append((edge.action_id, edge.x, edge.y))
-            cur = parent_h
-        steps.reverse()
-        return steps
+        targets.sort(key=lambda t: (t[1], t[0]))
+        # Reconstruct paths
+        out: list[tuple[str, int, list[tuple[int, Optional[int], Optional[int]]]]] = []
+        for target_hash, target_depth in targets:
+            steps: list[tuple[int, Optional[int], Optional[int]]] = []
+            cur = target_hash
+            while cur != start:
+                parent_h, edge = parents[cur]
+                steps.append((edge.action_id, edge.x, edge.y))
+                cur = parent_h
+            steps.reverse()
+            out.append((target_hash, target_depth, steps))
+        return out
 
     def audit(self) -> GraphAudit:
         return GraphAudit(
