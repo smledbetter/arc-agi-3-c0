@@ -57,6 +57,8 @@ def run_one(
     env = arcade.make(game_id, seed=master_seed)
     obs = env.reset()
     prev_levels = int(obs.levels_completed)
+    max_levels_cleared = prev_levels
+    n_resets = 0
     actions_to_first_level_up: int | None = None
 
     src_frame = np.asarray(obs.frame[0])
@@ -97,6 +99,7 @@ def run_one(
             if score_delta > 0:
                 # Reset model state for the new level per pre-reg §3.
                 agent.reset_for_new_level()
+            max_levels_cleared = max(max_levels_cleared, int(obs.levels_completed))
 
             log.log_step(StepRecord(
                 step=step,
@@ -113,16 +116,26 @@ def run_one(
             src_hash = dst_hash
 
             state_name = getattr(obs.state, "name", str(obs.state))
-            if state_name in ("WIN", "GAME_OVER"):
+            if state_name == "WIN":
                 break
+            if state_name == "GAME_OVER":
+                # Brooks-style: deaths are part of exploration. env.reset() and continue
+                # within the same trajectory (resets count toward max_steps). Do NOT reset
+                # agent state — accumulate exploration knowledge across deaths.
+                n_resets += 1
+                obs = env.reset()
+                src_frame = np.asarray(obs.frame[0])
+                src_hash = frame_hash(obs)
+                agent.layer2.observe_state(src_hash, list(obs.available_actions))
+                prev_levels = int(obs.levels_completed)  # restart level counter
 
         wall_seconds = time.perf_counter() - t_start
 
         log.log_summary(TrajectorySummary(
             trajectory=f"{STAGE}/{game_short}/{ARM}/seed{master_seed}",
-            levels_cleared=prev_levels,
+            levels_cleared=max_levels_cleared,
             total_steps=n_steps,
-            total_score=prev_levels,
+            total_score=max_levels_cleared,
             actions_to_first_level_up=actions_to_first_level_up,
             wall_seconds=wall_seconds,
             cost_usd=0.0,
@@ -131,8 +144,9 @@ def run_one(
     audit = agent.audit()
     if not quiet:
         print(f"  {game_short} seed={master_seed:3d}: "
-              f"steps={n_steps:4d} levels={prev_levels} "
+              f"steps={n_steps:4d} levels={max_levels_cleared} "
               f"first_lvl_up={actions_to_first_level_up} "
+              f"resets={n_resets} "
               f"wall={wall_seconds:.1f}s "
               f"L2 states={audit['layer2']['n_states_visited']} "
               f"L3 active={audit['layer3']['activated']}")
@@ -140,8 +154,9 @@ def run_one(
         "game": game_short,
         "seed": master_seed,
         "n_steps": n_steps,
-        "levels_cleared": prev_levels,
+        "levels_cleared": max_levels_cleared,
         "actions_to_first_level_up": actions_to_first_level_up,
+        "n_resets": n_resets,
         "wall_seconds": wall_seconds,
         "audit": audit,
     }

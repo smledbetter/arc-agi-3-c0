@@ -44,15 +44,18 @@ class C0Agent:
 
     def __init__(self, master_seed: int, device: str = "auto") -> None:
         self.master_seed = master_seed
-        self.layer0 = Layer0(master_seed, device=device)
-        self.layer2 = StateGraph()
-        self.layer3 = Layer3(master_seed, device=device)
         self.rng = np.random.default_rng(master_seed + 1)  # offset from layer rngs
+        self.layer0 = Layer0(master_seed, device=device)
+        self.layer2 = StateGraph(rng=np.random.default_rng(master_seed + 2))
+        self.layer3 = Layer3(master_seed, device=device)
 
     def reset_for_new_level(self) -> None:
-        """Wipe model state between levels per pre-reg §3 reset protocol."""
+        """Wipe model state between levels per pre-reg §3 reset protocol.
+
+        Re-seeds L2's RNG so post-reset behavior is reproducible from master_seed.
+        """
         self.layer0.reset()
-        self.layer2.reset()
+        self.layer2 = StateGraph(rng=np.random.default_rng(self.master_seed + 2))
         self.layer3.reset()
 
     def select_action(

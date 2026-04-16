@@ -58,13 +58,18 @@ class GraphAudit:
 class StateGraph:
     """Directed multigraph + untested-action bookkeeping + BFS frontier search."""
 
-    def __init__(self) -> None:
+    def __init__(self, rng: Optional[object] = None) -> None:
+        import numpy as _np
         self.edges: dict[str, list[Edge]] = collections.defaultdict(list)
         self.untested: dict[str, set[int]] = {}    # legal actions not yet tried at h
         self.visited: set[str] = set()              # states whose `available_actions` we know
         self._path: list[tuple[int, Optional[int], Optional[int]]] = []
         self._fired = 0
         self._bfs_targets = 0
+        # RNG for diversity when picking among multiple untested actions at one state.
+        # Pre-reg §4 says "take the untested action" (singular) — ambiguous when many; we
+        # uniform-sample for exploration diversity rather than deterministic min().
+        self._rng = rng if rng is not None else _np.random.default_rng(0)
 
     def reset(self) -> None:
         """Wipe state. Called on level-up per pre-reg §3 reset protocol."""
@@ -124,7 +129,8 @@ class StateGraph:
         legal_set = set(int(a) for a in available_actions)
         untested_here = self.untested.get(current_hash, set()) & legal_set
         if untested_here:
-            action_id = min(untested_here)  # deterministic pick: smallest id first
+            # Uniform sample for exploration diversity. Deterministic given seeded rng.
+            action_id = int(self._rng.choice(sorted(untested_here)))
             self._fired += 1
             self._path.clear()  # local untested takes priority over a stale path
             return self._with_data(action_id, click_sampler)
