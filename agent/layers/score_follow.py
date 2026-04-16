@@ -37,14 +37,16 @@ HORIZON = 50  # back-label distance cap
 
 
 def hash_to_embedding(frame_hash: str) -> torch.Tensor:
-    """SHA256 hex → 64-dim ±1 float vector. Deterministic, reproducible.
+    """frame_hash → 64-dim ±1 float vector. Deterministic, reproducible.
 
-    Take first 512 bits = 64 bytes = 64 int8. Map each int8's sign bit to ±1.
-    (Pre-reg specifies "first 512 bits to 64 × int8 then cast to float and scale to ±1".
-    A natural reading: each byte's MSB → sign. We use byte > 127 → +1, else -1.)
+    Pre-reg §4 said "first 512 bits of SHA256 → 64 int8 → ±1," but SHA256 only
+    produces 256 bits. Amendment 2 (paper/stage1-preregistration-AMENDMENT-2.md)
+    clarifies: expand the hash via SHA512(frame_hash.hex) to get 512 bits, then
+    map each byte (>127 → +1, ≤127 → -1) to a 64-d ±1 vector.
     """
-    raw = bytes.fromhex(frame_hash[:128])  # first 64 bytes = first 128 hex chars
-    arr = np.frombuffer(raw, dtype=np.uint8)
+    import hashlib
+    expanded = hashlib.sha512(frame_hash.encode()).digest()  # 64 bytes = 512 bits
+    arr = np.frombuffer(expanded, dtype=np.uint8)
     return torch.tensor(np.where(arr > 127, 1.0, -1.0), dtype=torch.float32)
 
 
