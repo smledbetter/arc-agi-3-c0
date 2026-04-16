@@ -9,7 +9,10 @@ import numpy as np
 
 from agent.layers.bce_frame_change import Layer0, GRID
 
-layer = Layer0(master_seed=0, num_threads=2)
+import torch
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"device: {device}")
+layer = Layer0(master_seed=0, device=device)
 rng = np.random.default_rng(0)
 
 # Warm up — first call has graph construction + BN init + etc.

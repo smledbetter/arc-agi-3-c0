@@ -126,10 +126,12 @@ class ReplayBuffer:
 class Layer0:
     """Online trainer + predictor. One instance per (game, seed, level)."""
 
-    def __init__(self, master_seed: int, device: str = "cpu", num_threads: int | None = 2) -> None:
+    def __init__(self, master_seed: int, device: str = "auto", num_threads: int | None = 2) -> None:
         self.master_seed = master_seed
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
-        if num_threads is not None and device == "cpu":
+        if num_threads is not None and self.device.type == "cpu":
             torch.set_num_threads(num_threads)
         torch.manual_seed(master_seed)
         self.net = Layer0Net().to(self.device)
