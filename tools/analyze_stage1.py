@@ -181,10 +181,15 @@ def percentile_bootstrap_ci(
         idx = rng.integers(0, n, size=n)
         resample = [events[int(i)] for i in idx]
         medians.append(km_median(resample))
-    # numpy percentile handles inf correctly when sorted
     arr = np.array(medians, dtype=float)
-    lo = float(np.percentile(arr, 100 * alpha / 2, method="linear"))
-    hi = float(np.percentile(arr, 100 * (1 - alpha / 2), method="linear"))
+    # If all bootstrap medians are inf (all-censored case), report inf directly
+    # — np.percentile linear interp on [inf, inf, ...] yields nan from inf - inf.
+    if np.all(np.isinf(arr)):
+        return (float("inf"), float("inf"))
+    # Use nearest-rank to avoid inf-arithmetic in interpolation when arr mixes
+    # finite and inf values.
+    lo = float(np.percentile(arr, 100 * alpha / 2, method="lower"))
+    hi = float(np.percentile(arr, 100 * (1 - alpha / 2), method="higher"))
     return (lo, hi)
 
 
