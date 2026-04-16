@@ -87,7 +87,13 @@ def load_trajectory(path: Path) -> Optional[TrajectoryResult]:
     src_counts: dict[str, int] = collections.Counter()
     summary_rec: Optional[dict] = None
     for line in path.read_text(encoding="utf-8").splitlines():
-        rec = json.loads(line)
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            # Mid-write partial line on an in-progress trajectory; skip silently.
+            continue
         if "trajectory" in rec:
             summary_rec = rec
             continue
