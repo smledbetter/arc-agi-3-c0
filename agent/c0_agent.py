@@ -125,8 +125,10 @@ class C0Agent:
         return sampler
 
     def audit(self) -> dict:
+        from dataclasses import asdict, is_dataclass
+        l2 = self.layer2.audit()
         return {
             "layer0": self.layer0.audit(),
-            "layer2": self.layer2.audit(),
+            "layer2": asdict(l2) if is_dataclass(l2) else l2,
             "layer3": self.layer3.audit(),
         }
