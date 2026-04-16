@@ -32,15 +32,23 @@ from agent.instrumentation import StepTimer
 from agent.trace_logger import TraceLogger, StepRecord, TrajectorySummary
 
 
-GAME_IDS = {
+STAGE1_GAME_IDS = {
     "sb26": "sb26-7fbdac44",
     "r11l": "r11l-495a7899",
     "su15": "su15-1944f8ab",
 }
 DEFAULT_SEEDS = [42, 7, 99, 1, 123]
 ARM = "c0_layers03"
-STAGE = "stage1"
 MAX_STEPS = 2000
+
+
+def load_all_25() -> dict[str, str]:
+    """Read tools/games.json (cached SDK metadata) → {short: full_game_id}."""
+    import json
+    from pathlib import Path
+    p = Path(__file__).parent.parent / "tools" / "games.json"
+    rows = json.loads(p.read_text())
+    return {r["short"]: r["game_id"] for r in rows}
 
 
 def run_one(
@@ -50,9 +58,12 @@ def run_one(
     max_steps: int,
     base_dir: str = "traces",
     quiet: bool = False,
+    stage: str = "stage1",
+    game_ids: dict[str, str] | None = None,
 ) -> dict:
     """Run a single (game, seed) trajectory. Returns audit + summary dict."""
-    game_id = GAME_IDS[game_short]
+    ids = game_ids if game_ids is not None else STAGE1_GAME_IDS
+    game_id = ids[game_short]
     agent = C0Agent(master_seed=master_seed)
     env = arcade.make(game_id, seed=master_seed)
     obs = env.reset()
@@ -68,7 +79,7 @@ def run_one(
 
     t_start = time.perf_counter()
 
-    with TraceLogger(STAGE, game_short, ARM, master_seed, base_dir=base_dir) as log:
+    with TraceLogger(stage, game_short, ARM, master_seed, base_dir=base_dir) as log:
         n_steps = 0
         for step in range(max_steps):
             n_steps = step + 1
@@ -132,7 +143,7 @@ def run_one(
         wall_seconds = time.perf_counter() - t_start
 
         log.log_summary(TrajectorySummary(
-            trajectory=f"{STAGE}/{game_short}/{ARM}/seed{master_seed}",
+            trajectory=f"{stage}/{game_short}/{ARM}/seed{master_seed}",
             levels_cleared=max_levels_cleared,
             total_steps=n_steps,
             total_score=max_levels_cleared,
@@ -164,25 +175,33 @@ def run_one(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--games", default="sb26,r11l,su15", help="comma-sep short game ids")
+    ap.add_argument("--games", default="sb26,r11l,su15",
+                    help="comma-sep short game ids, or 'all' for all 25 public games")
     ap.add_argument("--seeds", default=",".join(map(str, DEFAULT_SEEDS)),
                     help="comma-sep ints")
     ap.add_argument("--max-steps", type=int, default=MAX_STEPS)
     ap.add_argument("--base-dir", default="traces")
+    ap.add_argument("--stage", default="stage1",
+                    help="trace dir + summary tag (e.g. stage1, stage1_diagnostic)")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
-    games = [g.strip() for g in args.games.split(",") if g.strip()]
+    if args.games.strip() == "all":
+        game_ids = load_all_25()
+        games = sorted(game_ids.keys())
+    else:
+        game_ids = STAGE1_GAME_IDS
+        games = [g.strip() for g in args.games.split(",") if g.strip()]
+        for g in games:
+            if g not in game_ids:
+                raise ValueError(f"unknown game short {g!r}; allowed: {list(game_ids)}")
     seeds = [int(s) for s in args.seeds.split(",")]
-    for g in games:
-        if g not in GAME_IDS:
-            raise ValueError(f"unknown game short {g!r}; allowed: {list(GAME_IDS)}")
 
     # Suppress chatty arc-agi INFO logs unless verbose
     logging.getLogger("arc_agi").setLevel(logging.WARNING)
 
     arcade = Arcade()
-    print(f"Stage 1: games={games} seeds={seeds} max_steps={args.max_steps}")
+    print(f"{args.stage}: games={games} seeds={seeds} max_steps={args.max_steps}")
     t0 = time.perf_counter()
     summaries = []
     for game in games:
@@ -190,6 +209,7 @@ def main() -> int:
             summaries.append(run_one(
                 arcade, game, seed, args.max_steps,
                 base_dir=args.base_dir, quiet=args.quiet,
+                stage=args.stage, game_ids=game_ids,
             ))
     total_wall = time.perf_counter() - t0
     print(f"Done. Total wall: {total_wall:.1f}s ({total_wall/60:.1f} min)")
