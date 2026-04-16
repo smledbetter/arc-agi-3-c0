@@ -66,14 +66,23 @@
 - Prefer games with moderate baseline_sum (100-500). Extremes (>1000) are either too hard to clear any level or too easy to inform.
 - Avoid `ft09` — it is the SDK documentation demo game and is therefore heavily discussed online; substrate-contamination risk for Stage 3 C1 ablation.
 
-## Selection — TO FILL IN
+## Selection (committed 2026-04-16)
 
-Look through `game-previews/*.png`. Assign:
+- **Game A — `sb26` (SB26)** — convention-aligned.
+  Textbook button-UI layout: top row of four distinct button-like colored squares (grey/maroon/teal/green), central cyan-bordered display panel with four red dot indicators, a red horizontal divider (status-bar-like), bottom row of four more colored squares. Button-shaped clickable regions top + bottom, status-bar analog in the middle. Baseline 213 steps across 8 levels. Tag: `keyboard_click`. Pixel-salience priors should latch easily onto the rectangular button regions.
 
-- **Game A (convention-aligned):** `[short]` — justification: [why it looks button-like + standard status-bar]
-- **Game B (convention-shifted):** `[short]` — justification: [what visual convention is being shifted]
-- **Game C (mixed):** `[short]` — justification: [what partial shift]
+- **Game B — `r11l` (R11L)** — convention-shifted.
+  Pure non-button clickables: a black cross sprite, a white ring, a green cross, scattered across an irregular gray play area bordered by red. No UI region, no status bar, no rectangular button shapes anywhere. The clickable targets ARE gameplay objects. Textbook visual-salience stress test — the Layer 0 BCE classifier has no dedicated "UI quadrant" to anchor on and must learn click affordances from gameplay sprites. Baseline 233 steps across 6 levels. Tag: `click`. If Layer 4 doesn't rescue this, the StochasticGoose failure mode reproduces.
 
-**Held-out (22 games):** all other shorts. `eval/held_out_wrapper.py` will refuse make() calls for any of them until Stage 4.
+- **Game C — `su15` (SU15)** — mixed (one axis shifted).
+  Yellow status strip at top with a distinct white button is clearly UI — that convention aligns. But the clickable objects on the playfield (a maroon target-ring, a black cross, a green diagonal dotted path, a white square) are gameplay objects, not buttons — that convention is shifted. Status ✓, click ✗. Baseline 361 steps across 9 levels. Tag: `click`. Tests whether Layer 4 provides partial lift when only one convention is off.
 
-Commit this file before Stage 1 runs.
+**Shared properties:** all three are click-capable (so ACTION6 coordinate reasoning applies to all), baseline_sum clustered in 213–361 (comparable difficulty), level counts 6–9 (enough reps for actions-to-first-level-up measurement), none of them is `ft09` (docs demo).
+
+## Held-out (22 games)
+
+`eval/held_out_wrapper.py` is configured with `allowed_games={"sb26-7fbdac44", "r11l-495a7899", "su15-1944f8ab"}` and raises `HeldOutGameError` for any of:
+
+`ar25 bp35 cd82 cn04 dc22 ft09 g50t ka59 lf52 lp85 ls20 m0r0 re86 s5i5 sc25 sk48 sp80 tn36 tr87 tu93 vc33 wa30`
+
+Blinding lifts at Stage 4 (envelope validation on all 25).
