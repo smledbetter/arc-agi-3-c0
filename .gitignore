@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+logs/
+traces/
+.env
+*.db
+*.egg-info/
+environment_files/
+games/previews/
+recordings/
