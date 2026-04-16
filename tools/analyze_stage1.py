@@ -79,8 +79,11 @@ class Stage1Results:
 
 # ---------- trace I/O ----------
 
-def load_trajectory(path: Path) -> TrajectoryResult:
-    """Read one (game, seed) JSONL trace; extract summary + per-step src counts."""
+def load_trajectory(path: Path) -> Optional[TrajectoryResult]:
+    """Read one (game, seed) JSONL trace; extract summary + per-step src counts.
+
+    Returns None if the trace has no summary line (trajectory still in progress).
+    """
     src_counts: dict[str, int] = collections.Counter()
     summary_rec: Optional[dict] = None
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -92,7 +95,7 @@ def load_trajectory(path: Path) -> TrajectoryResult:
         src = action.get("src", "unknown")
         src_counts[src] += 1
     if summary_rec is None:
-        raise ValueError(f"no summary line in {path}")
+        return None  # trajectory in progress; skip
     # Decode trajectory id e.g. "stage1/sb26/c0_layers03/seed42"
     game_short = summary_rec["trajectory"].split("/")[1]
     seed = int(summary_rec["trajectory"].split("seed")[-1])
@@ -114,7 +117,9 @@ def load_all(traces_dir: Path) -> list[TrajectoryResult]:
         if not d.exists():
             continue
         for f in sorted(d.glob("seed*.jsonl")):
-            out.append(load_trajectory(f))
+            t = load_trajectory(f)
+            if t is not None:
+                out.append(t)
     return out
 
 
