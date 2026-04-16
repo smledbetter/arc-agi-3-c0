@@ -130,4 +130,118 @@ Per testing-plan.md §11, public engagement was scoped to "after Stage 1 pass." 
 
 ---
 
-**Status:** Stage 1 frozen. Diagnostic queued (§7). Stage 2 (Layer 4) is conditional on diagnostic outcome; if C0 fundamentally doesn't work, Layer 4 question reframes from "lift" to "rescue."
+## 10. Diagnostic results (25 games × seed 42)
+
+Run on vast.ai instance `35094112` (RTX A4000, Quebec), wall ≈ 40 min, cost ≈ $0.06. Traces at `traces/stage1_diagnostic/<short>/c0_layers03/seed42.jsonl` (preserved on VPS, gitignored).
+
+### 10.1 Per-game table
+
+| Game | Tags | Available actions | Levels cleared | First level-up (step) | Resets |
+|---|---|---|---:|---:|---:|
+| ar25 | keyboard_click | 1,2,3,4,5,6,7 | 0 | — | — |
+| bp35 | keyboard_click | 3,4,6,7 | 0 | — | — |
+| cd82 | keyboard_click | 1,2,3,4,5,6 | 0 | — | — |
+| cn04 | keyboard_click | 1,2,3,4,5,6 | 0 | — | — |
+| dc22 | keyboard_click | 1,2,3,4,6 | 0 | — | — |
+| ft09 | (none) | 6 | 0 | — | — |
+| g50t | keyboard | 1,2,3,4,5 | 0 | — | — |
+| ka59 | keyboard_click | 1,2,3,4,6 | 0 | — | — |
+| lf52 | click | 1,2,3,4,6,7 | 0 | — | — |
+| lp85 | click | 6 | 0 | — | — |
+| ls20 | keyboard | 1,2,3,4 | 0 | — | — |
+| m0r0 | keyboard_click | 1,2,3,4,5,6 | 0 | — | — |
+| **r11l** | **click** | **6** | **1** | **185** | — |
+| re86 | keyboard_click | 1,2,3,4,5 | 0 | — | — |
+| s5i5 | click | 6 | 0 | — | — |
+| sb26 | keyboard_click | 5,6,7 | 0 | — | — |
+| sc25 | keyboard_click | 1,2,3,4,6 | 0 | — | — |
+| **sk48** | **keyboard_click** | **1,2,3,4,6,7** | **1** | **1458** | — |
+| **sp80** | **keyboard_click** | **1,2,3,4,5,6** | **1** | **47** | — |
+| su15 | click | 6,7 | 0 | — | — |
+| tn36 | click | 6 | 0 | — | — |
+| tr87 | keyboard | 1,2,3,4 | 0 | — | — |
+| tu93 | keyboard_click | 1,2,3,4 | 0 | — | — |
+| vc33 | click | 6 | 0 | — | — |
+| wa30 | keyboard | 1,2,3,4,5 | 0 | — | — |
+
+**3 of 25 games cleared ≥1 level.** Pre-registered decision threshold was ≥10.
+
+### 10.2 What the three cleared games share
+
+- **sp80** (first_up=47): `keyboard_click` with 6 actions. Cleared fastest — suggests a nearly-trivial first level where any sequence of a few dozen random actions produces a score event.
+- **r11l** (first_up=185): click-only. Random pixel sampling finds a scoring target within ~200 clicks — moderate click-affordance density.
+- **sk48** (first_up=1458): `keyboard_click` with 6 actions. Barely cleared at 73% of max_steps — nearly missed. Very sparse affordance.
+
+No single input modality (click-only, keyboard-only, hybrid) predicts clearance. Click-only games ft09, lp85, s5i5, tn36, vc33 all failed despite being identical in modality to r11l. **Game-specific scoring structure dominates modality as a predictor.**
+
+### 10.3 Disconfirmed hypotheses
+
+1. **"Click-affordance density predicts clearance" (§4.4 of initial writeup):** Partially disconfirmed. r11l supports it, but 5 other click-only games fail. Click affordance density is necessary but not sufficient; the specific spatial structure of scoring targets matters.
+
+2. **"Visual-salience prior collapse" (testing-plan.md §4.6):** Fully disconfirmed. C0 has no visual-salience priors strong enough to collapse. The BCE filter is a near-no-op on all 25 games.
+
+3. **"Keyboard-only games are easier for structured exploration":** Disconfirmed. All 5 keyboard-only games (g50t, ls20, tr87, tu93, wa30) failed despite having small action spaces (4–5 actions) where graph exhaustion should be tractable.
+
+## 11. Pre-registered decision rule invoked
+
+Per stage1_results.md §7 (pre-registered before running the diagnostic):
+
+> if ≥10 of 25 games clear ≥1 level → click-affordance-density hypothesis supported → continue to Stage 2.
+> if <10 → C0 fundamentally insufficient → pivot decision.
+
+Result: **3 < 10. C0 is fundamentally insufficient at this scale with this architecture.**
+
+Per the original pre-reg §6 (testing-plan.md §5):
+
+> "If still <1 level cleared on ≥10 games, C0 fundamentally doesn't work → document and decide (pivot to C1-primary vs abandon)."
+
+We cleared 3 of 25 games, each by exactly 1 level, all via undirected random exploration. The agent does not exhibit structured exploration that accumulates toward scoring — it exhibits random sampling that occasionally hits.
+
+## 12. Why C0 failed: the negative result
+
+C0's architecture has four layers designed for progressive sophistication: frame-change detection (L0) → filtered wandering (L1) → state-graph BFS (L2) → score-delta back-labeling (L3). In practice, on ARC-AGI-3 public games:
+
+**Layer 0 is uninformative.** When 80–100% of actions change the frame (as they do on all 25 games), the BCE classifier learns "everything changes the frame" and the 0.05 filter passes everything. Layer 0 degenerates to a no-op. The architectural assumption — that frame-change is a useful proxy for action-legality — fails when the environment is highly responsive to all inputs.
+
+**Layer 2 explores efficiently but aimlessly.** The hash-state graph successfully discovers 150–1200+ unique states per trajectory. BFS navigates between them. But without a scoring signal, the graph has no notion of "progress" — it explores breadth without direction. This matches the dolphin-in-a-coma observation from the preview competition: graph exploration is necessary but not sufficient.
+
+**Layer 3 cannot bootstrap from zero.** The score-delta back-labeler requires a positive score event to activate. On 22/25 games, no positive event occurs in 2000 steps of random+graph exploration. Layer 3 remains dormant for the entire trajectory. The layer designed to convert exploration into directed search only works when exploration has already succeeded — a bootstrapping problem.
+
+**The architecture lacks a curriculum signal between "frame changed" and "scored."** StochasticGoose (the precedent that inspired C0's design) scored 12.58% on the preview set; we score 3/25 on the public set. The difference likely lies in StochasticGoose's downstream processing (not documented in detail in the arXiv writeup) which may have used game-specific heuristics or a richer action-evaluation signal beyond frame-change BCE.
+
+## 13. What this means for the research program
+
+### 13.1 The paper thesis must change
+
+The original thesis (*"Structured Exploration Beats Scale on ARC-AGI-3"*) is not supported by Stage 1. A revised thesis acknowledging the negative result:
+
+> *"We built a structured-exploration agent (C0) in the AuRA/3T tradition — reactive front-end with minimal representation — and tested it against 25 ARC-AGI-3 public games. C0 cleared 3/25 games, each by exactly one level, all via undirected random action rather than structured search. We identify a specific failure mechanism: frame-change prediction (the reactive front-end's primary signal) is uninformative when environments respond to most actions, creating a bootstrapping problem for the score-directed layers. This suggests that the structured-exploration approach requires a richer intermediate signal than frame-change to bridge the gap between 'the world changed' and 'I progressed.'"*
+
+### 13.2 Remaining options
+
+**Option A — Pivot to C1-primary (LLM hypothesis layer).** Stage 3's C1 ablation could still be run with C0 as the baseline. But the baseline is so weak (3/25) that any C1 lift would be trivially significant. The comparison would not test "does the LLM hypothesis help structured exploration?" — it would test "does any coherent policy beat random."
+
+**Option B — Investigate Layer 4 (rule-FSM) as a rescue.** Layer 4 was designed to operate on Core Knowledge primitives rather than pixel-level salience. If Layer 4 provides the "richer intermediate signal" that the §12 diagnosis calls for, it could rescue C0. But this reframes Stage 2 from "does Layer 4 lift?" to "does Layer 4 rescue a fundamentally broken front-end?" — a harder question.
+
+**Option C — Publish the negative result as-is.** A paper documenting why frame-change-BCE + hash-state-graph + score-delta-back-label fails on ARC-AGI-3 is a genuine contribution. The mechanism (§12) is specific and testable. The data (25-game traces) is open-sourceable. The pre-registration makes the methodology reviewer-resistant. This is the honest path if we believe the architectural insight matters more than a positive headline number.
+
+**Option D — Abandon ARC-AGI-3 and redirect effort.** The research program has other active threads (SSA, RGP-2, SDT study 10) that are closer to publication.
+
+### 13.3 Recommendation
+
+**Option C (publish the negative result), possibly combined with a brief Layer 4 probe (Option B, 1 week).** The negative result is genuinely informative. The pre-registration + trace data + mechanism analysis make it publishable as a short paper or workshop submission. A 1-week Layer 4 probe (Stage 2, 3 games × 5 seeds, same pre-reg framework) would add a natural "and here's what partially fixes it" section — or confirm that the architecture is dead.
+
+## 14. Cost accounting
+
+| Phase | Vast.ai | VPS | Total |
+|---|---|---|---|
+| Stage 1 (3 games × 5 seeds) | $0.04 | $0.00 | $0.04 |
+| Diagnostic (25 games × 1 seed) | $0.06 | $0.00 | $0.06 |
+| Development iteration (box idle) | $0.05 | $0.00 | $0.05 |
+| **Total** | **$0.15** | **$0.00** | **$0.15** |
+
+Well within the $10 Stage 0 reserve and the $50 Stage 1 budget. Total program spend to date: $0.15.
+
+---
+
+**Status:** Stage 1 complete (FAIL + diagnostic INSUFFICIENT). Pre-registered decision rules have been executed. The program is at the pivot decision point described in §13.2.
